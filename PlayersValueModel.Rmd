@@ -1,0 +1,286 @@
+---
+title: "Influence Variables on the Market Value of Football Players"
+author: "João Leite"
+date: "03/29/2023"
+output:
+  html_document: default
+github: joao9905
+---
+
+```{r setup, include=FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+pacotes <- c("plotly","tidyverse","ggrepel","fastDummies","knitr","kableExtra",
+             "splines","reshape2","PerformanceAnalytics","correlation","see",
+             "ggraph","psych","nortest","rgl","car","ggside","tidyquant","olsrr",
+             "jtools","ggstance","magick","cowplot","emojifont","beepr","Rcpp",
+             "equatiomatic","metan", "ggwordcloud")
+
+options(rgl.debug = TRUE)
+
+if(sum(as.numeric(!pacotes %in% installed.packages())) != 0){
+  instalador <- pacotes[!pacotes %in% installed.packages()]
+  for(i in 1:length(instalador)) {
+    install.packages(instalador, dependencies = T)
+    break()}
+  sapply(pacotes, require, character = T) 
+} else {
+  sapply(pacotes, require, character = T) 
+}
+
+```
+
+The aim of this analysis is to understand which performance variables of football players most affect their price. This study does not aim to find static truths that can be applied to all football players in any market around the world and in all times. Instead, the goal is to highlight the importance of considering football players as financial assets and that there are "hidden" variables on the field that affect their price, and being able to identify players who are cheaper than they should be can bring competitive advantages to football market executives.
+
+Thus, considering the top 30 football players in the world in 2022, according to FIFA, and an additional 16 players who were listed as the most valuable in the world according to Transfermarkt (as of the date of this study), we obtained a list of 46 players to use as a basis for analysis.
+
+From this list, performance data per season for these players was obtained from FBref and combined with the market values from Transfermarkt.
+
+Finally, I will perform a linear regression analysis with a stepwise procedure to try to see which variables, in this database, have a direct impact on player pricing.
+
+```{r, echo=FALSE}
+load(file = "C:\\Users\\jvleite\\OneDrive - Hexagon\\Desktop\\Pessoal\\MBA\\TCC\\Projeto Final\\PlayersData.RData")
+
+glimpse(PlayersData)
+```
+
+
+As we have qualitative variables, the first step is to generate dummy variables from those variables
+
+"Dummy variables" are a statistical technique used to represent qualitative or categorical variables in a regression analysis. It involves converting non-numeric data into numeric data, which can be used in a regression model.
+
+```{r, results = 'hide'}
+PlayersData_dummies <- dummy_columns(.data = PlayersData,
+                                    select_columns = c("Country","StrongFoot","Position"),
+                                    remove_selected_columns = T,
+                                    remove_most_frequent_dummy = T)
+
+```
+
+
+After this step, we proceed with the construction of our regression model.
+
+```{r}
+model_PlayersData <- lm(MarketValue ~ . -ID-PlayerName, PlayersData_dummies)
+
+summary(model_PlayersData)
+
+```
+
+As we identified many variables that do not have statistical significance, the next step is to perform a stepwise procedure to eliminate them and determine which combination of variables best helps us predict the market value of the players.
+
+A stepwise procedure is a statistical method used to select the most important independent variables to include in the final regression model. It works by iteratively adding or removing independent variables from the model based on their statistical significance, until the model includes only the most important variables.
+
+```{r, results = 'hide'}
+step_PlayersData <- step(model_PlayersData, k = 3.841459)
+```
+
+```{r, echo=FALSE}
+summary(step_PlayersData)
+```
+
+
+We have observed that our model has become much more efficient and less susceptible to overfitting, allowing us to identify the variables that actually impact the market value of the players.
+
+Therefore, it is worthwhile to use a graphical resource to understand the impact of these variables and how they relate to each other. Since the graph would be difficult to visualize if we compared all variables, I decided to include only the quantitative variables that were statistically significant in explaining the market value, that is, those that presented a T value less than 0.001 after the Student's t-test.
+
+```{r, echo = FALSE}
+corr_plot(
+          select(PlayersData_dummies,
+              MarketValue                      
+             ,ShotsTarget                        
+             ,Blocks                          
+             ,TochesDef                     
+             ,TochesMid                 
+             ,DribblesAttempt                   
+             ,TeamGolsWhileInfield         
+             ,FreekickPasses      
+             ,ThroughBalls      
+             ,Crosses),
+          shape.point = 21,
+          col.point = "black",
+          fill.point = "#FDE725FF",
+          size.point = 2,
+          alpha.point = 0.6,
+          maxsize = 3,
+          minsize = 2,
+          smooth = TRUE,
+          col.smooth = "black",
+          col.sign = "#440154FF",
+          upper = "corr",
+          lower = "scatter",
+          diag.type = "density",
+          col.diag = "#440154FF",
+          pan.spacing = 0,
+          lab.position = "bl")
+```
+
+Now we performed the Shapiro-Francia test to check if the errors of our model follow a normal distribution. If so, this means that the regression model is capturing all relevant effects and that the results obtained from it are reliable. In addition, it indicates that the predictor variables used in the model are appropriate for explaining the variation in the dependent variable.
+
+However, if the test indicates otherwise, it means that our regression model is not capturing all relevant effects and that it needs to be revised or improved.
+
+
+```{r}
+sf.test(step_PlayersData$residuals)
+```
+
+As the p-value was less than 0.05, this indicates that the errors of our model follow a normal distribution. We can even verify this graphically by comparing the distribution of our errors with a theoretical normal curve (represented in dark green):
+
+```{r, echo = FALSE}
+
+  mutate(PlayersData, residuals = step_PlayersData$residuals) %>%
+  ggplot(aes(x = residuals)) +
+  geom_histogram(aes(y = ..density..), 
+                 color = "white", 
+                 fill = "#55C667FF", 
+                 bins = 15,
+                 alpha = 0.6) +
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(step_PlayersData$residuals),
+                            sd = sd(step_PlayersData$residuals)),
+                size = 2, color = "grey30") +
+  scale_color_manual(values = "grey50") +
+  theme_bw()+
+    labs(title = "MODEL X THEORETICAL NORMAL CURVE",x = "Residuals (errors)", y = "Frequency") +
+    theme(plot.title = element_text(size=35), legend.key.size = unit(1, 'cm'), 
+        legend.text = element_text(size=20), 
+        axis.text.x=element_text(size=20),
+        axis.text.y=element_text(size=20),
+        text = element_text(size = 20))
+```
+
+The next step is to check for heteroscedasticity in the data of our model. Generally, if the test value is less than 0.05, there is heteroscedasticity, indicating that there are relevant variables for prediction that were omitted from our model, which can harm the efficiency of regression estimators and make inferences unreliable.
+
+```{r}
+ols_test_breusch_pagan(step_PlayersData)
+```
+
+As the value of 'Prob > Chi2' was lower than 0.05, this indicates the presence of heteroscedasticity in the model's data. However, since the aim of this study is to identify the variables that can explain the players' market value, and not necessarily to predict this value with the highest possible accuracy, and considering that we are limited in terms of data sources to obtain other relevant variables omitted for prediction, we decided to keep the model as it is and proceed with the analysis.
+
+
+```{r, echo=FALSE, results = 'hide'}
+PlayersData_dummies$fitted_step <- step_PlayersData$fitted.values
+PlayersData_dummies$residuals_step <- step_PlayersData$residuals
+```
+
+
+```{r, echo = FALSE, results = 'hide'}
+PredictiveVariablesIndex <- c(6,16,17,26,57,59,60,63,64,65,67,73,74,77,78,80,81,86,89,91,94,95,97)
+```
+
+With the model ready, we can now compare the market values generated by the model with the actual market values.
+
+```{r, echo=FALSE}
+CR7_test <- PlayersData_dummies[154:172,PredictiveVariablesIndex]
+
+CR7 <- data.frame(Year = 2004:2022,PlayersData[154:172,10], PredictedValue = predict(step_PlayersData,CR7_test))
+
+
+ggplot(CR7, aes(x=Year)) + 
+  geom_line(aes(y = MarketValue, color = "Actual Value"), size = 1.5) + 
+  geom_line(aes(y = PredictedValue, color = "Model Value"), size = 1.5) +
+  scale_colour_manual("", 
+                       breaks = c("Actual Value", "Model Value"),
+                       values = c("red", "steelblue"))+
+  theme_classic()+
+  labs(title = "CR7 (Actual value x Predicted)", y = "Value (€)")+
+  theme(plot.title = element_text(size=35), legend.key.size = unit(1, 'cm'), 
+        legend.text = element_text(size=20), 
+        axis.text.x=element_text(size=20),
+        axis.text.y=element_text(size=20),
+        text = element_text(size = 20))
+  
+```
+
+
+
+```{r, echo=FALSE}
+Casemiro_test <- PlayersData_dummies[132:141,PredictiveVariablesIndex]
+
+Casemiro <- data.frame(Year = 2013:2022,PlayersData[132:141,10], PredictedValue = predict(step_PlayersData,Casemiro_test))
+
+
+ggplot(Casemiro, aes(x=Year)) + 
+  geom_line(aes(y = MarketValue, color = "Actual Value"), size = 1.5) + 
+  geom_line(aes(y = PredictedValue, color = "Model Value"), size = 1.5) +
+  scale_colour_manual("", 
+                      breaks = c("Actual Value", "Model Value"),
+                      values = c("red", "steelblue"))+
+  theme_classic()+
+  labs(title = "Casemiro (Actual value x Predicted)", y = "Value (€)")+
+  theme(plot.title = element_text(size=35), legend.key.size = unit(1, 'cm'), 
+        legend.text = element_text(size=20), 
+        axis.text.x=element_text(size=20),
+        axis.text.y=element_text(size=20),
+        text = element_text(size = 20))
+```
+
+
+
+```{r, echo=FALSE}
+Rudiger_test <- PlayersData_dummies[206:216,PredictiveVariablesIndex]
+
+Rudiger <- data.frame(Year = 2012:2022,PlayersData[206:216,10], PredictedValue = predict(step_PlayersData,Rudiger_test))
+
+
+ggplot(Rudiger, aes(x=Year)) + 
+  geom_line(aes(y = MarketValue, color = "Actual Value"), size = 1.5) + 
+  geom_line(aes(y = PredictedValue, color = "Model Value"), size = 1.5) +
+  scale_colour_manual("", 
+                      breaks = c("Actual Value", "Model Value"),
+                      values = c("red", "steelblue"))+
+  theme_classic()+
+  labs(title = "Rudiger (Actual value x Predicted)", y = "Value (€)") +
+    theme(plot.title = element_text(size=35), legend.key.size = unit(1, 'cm'), 
+        legend.text = element_text(size=20), 
+        axis.text.x=element_text(size=20),
+        axis.text.y=element_text(size=20),
+        text = element_text(size = 20))
+```
+
+
+
+```{r, echo=FALSE}
+Neymar_test <- PlayersData_dummies[305:313,PredictiveVariablesIndex]
+
+Neymar <- data.frame(Year = 2014:2022,PlayersData[305:313,10], PredictedValue = predict(step_PlayersData,Neymar_test))
+
+
+ggplot(Neymar, aes(x=Year)) + 
+  geom_line(aes(y = MarketValue, color = "Actual Value"), size = 1.5) + 
+  geom_line(aes(y = PredictedValue, color = "Model Value"), size = 1.5) +
+  scale_colour_manual("", 
+                      breaks = c("Actual Value", "Model Value"),
+                      values = c("red", "steelblue"))+
+  theme_classic()+
+  labs(title = "Neymar (Actual value x Predicted)", y = "Value (€)") +
+    theme(plot.title = element_text(size=35), legend.key.size = unit(1, 'cm'), 
+        legend.text = element_text(size=20), 
+        axis.text.x=element_text(size=20),
+        axis.text.y=element_text(size=20),
+        text = element_text(size = 20))
+
+```
+
+Finally, we have verified that the model has a satisfactory capacity to predict the market value of players and that the chosen variables for the model really influence this value. Therefore, it is important that agents, directors, and anyone involved in the financial aspects of football players pay attention and seek to deepen this type of study, as it demonstrates that some specific variables of player performance (which may or may not be different from the variables that influence performance on the field) can be used for possible profitable deals.
+
+As mentioned at the beginning of this article, this analysis is incipient and was performed with a fraction of the much larger amount of data that can be obtained, both in terms of the quantity of players analyzed and the variables used in the study. However, with this study, we have concluded that these are the main variables (at least with the database we have) and they can serve as a starting point for future analyses that seek to delve deeper into the topic.
+
+```{r}
+
+variables <- data.frame(variables = colnames(PlayersData_dummies[PredictiveVariablesIndex]))
+
+
+ggplot(variables, aes(label = variables, size = 40)) +
+  geom_text_wordcloud() +
+  scale_size_area(max_size = 10)+
+  theme_minimal()
+  
+
+```
+
+Note: As we transformed the categorical variables into dummy variables, the model separated some specific nationalities. However, I believe that the idea we can take from this is that off-field variables, such as nationality, can significantly influence the market value of players and, therefore, should be considered in decision-making.
+
+If you want to access the codes used in this study, they are available on my Github profile: https://github.com/joao9905.
+
+'
